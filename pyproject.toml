@@ -1,0 +1,24 @@
+[project]
+name = "fpf-agent"
+version = "0.1.0"
+description = "FPF Reasoning Agent with Schema-Guided Reasoning"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.10",
+    "pydantic-ai>=0.0.39",
+    "gradio>=5.9",
+    "aiosqlite>=0.20",
+    "pypdf>=5.1",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+fpf-agent = "fpf_agent.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fpf_agent"]
