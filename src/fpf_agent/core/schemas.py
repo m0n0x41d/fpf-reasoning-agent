@@ -40,12 +40,22 @@ class BoundedContext(BaseModel):
     """
     A.1.1: Semantic frame where meaning is local.
     CASCADE STEP 2: Always identify context.
+
+    FPF principle: "There is no absolute meaning - all terms are context-local."
     """
     context_id: str = Field(description="Unique context identifier")
     description: str = Field(description="What domain/scope this context covers")
     key_terms: list[str] = Field(
         default_factory=list,
         description="Important terms with local meaning in this context"
+    )
+    invariants: list[str] = Field(
+        default_factory=list,
+        description="Rules that must hold within this context"
+    )
+    parent_context: str | None = Field(
+        default=None,
+        description="Parent context ID for hierarchical contexts"
     )
 
 
@@ -59,19 +69,84 @@ class TemporalStance(BaseModel):
 
 
 # =============================================================================
-# F-G-R TRUST MODEL
+# F-G-R TRUST MODEL (B.3)
 # =============================================================================
+
+class EvidenceReference(BaseModel):
+    """Reference to evidence supporting a claim."""
+    evidence_id: str
+    evidence_type: Literal["observation", "test_result", "document", "derivation", "testimony"]
+    summary: str = Field(description="Brief description of what this evidence shows")
+    source: str = Field(description="Where this evidence comes from")
+    reliability: Annotated[float, Field(ge=0, le=1)] = Field(
+        default=0.5,
+        description="Base reliability of this evidence [0-1]"
+    )
+
 
 class FGRAssessment(BaseModel):
     """
     B.3: Trust as computed tuple (Formality, Scope, Reliability).
-    Trust is computed from evidence, not intuition.
+
+    FPF principle: "Trust is computed, not intuited."
+
+    F (Formality): F0-F9 scale measuring rigor of expression
+    G (Scope): Where/when the claim holds (bounded context + conditions)
+    R (Reliability): Computed from evidence using weakest-link rule
     """
-    formality: Annotated[int, Field(ge=0, le=9, description="F0=vague prose, F9=machine-verified")]
-    scope: str = Field(description="Where this claim/knowledge applies")
-    reliability: Annotated[float, Field(ge=0, le=1, description="Evidence-backed confidence")]
-    evidence_summary: str = Field(description="Brief summary of supporting evidence")
-    assurance_level: Literal["L0_unsubstantiated", "L1_partial", "L2_assured"]
+    # F: Formality level (0-9 scale)
+    formality: Annotated[int, Field(ge=0, le=9)] = Field(
+        description="F0=vague prose, F3=typed schema, F5=formal spec, F9=machine-verified"
+    )
+    formality_rationale: str = Field(
+        default="",
+        description="Why this formality level was assigned"
+    )
+
+    # G: Scope - where this applies
+    scope_context: str = Field(description="Bounded context ID where claim holds")
+    scope_conditions: list[str] = Field(
+        default_factory=list,
+        description="Applicability conditions (when claim holds)"
+    )
+    scope_exclusions: list[str] = Field(
+        default_factory=list,
+        description="Exclusions (when claim does NOT hold)"
+    )
+
+    # R: Reliability - computed from evidence
+    reliability: Annotated[float, Field(ge=0, le=1)] = Field(
+        description="Evidence-backed confidence [0-1], using weakest-link"
+    )
+    reliability_rationale: str = Field(
+        default="",
+        description="How reliability was computed"
+    )
+
+    # Evidence chain
+    evidence_references: list[EvidenceReference] = Field(
+        default_factory=list,
+        description="Evidence anchors supporting this assessment"
+    )
+
+    # Assurance level (derived from F-G-R)
+    assurance_level: Literal["L0_unsubstantiated", "L1_partial", "L2_assured"] = Field(
+        description="L0=no evidence, L1=partial evidence, L2=full evidence chain"
+    )
+
+    # Epistemic debt (B.3.4)
+    has_stale_evidence: bool = Field(
+        default=False,
+        description="Whether any evidence is past its valid_until date"
+    )
+    epistemic_debt_note: str | None = Field(
+        default=None,
+        description="Note if epistemic debt exists"
+    )
+
+    def summary(self) -> str:
+        """One-line F-G-R summary."""
+        return f"F{self.formality} | {self.scope_context} | R={self.reliability:.2f} | {self.assurance_level}"
 
 
 # =============================================================================
@@ -111,11 +186,26 @@ class RetrieveKnowledge(BaseModel):
 
 
 class GenerateHypothesis(BaseModel):
-    """B.5.2: Abductive hypothesis generation"""
+    """
+    B.5.2: Abductive hypothesis generation.
+
+    Abduction generates hypotheses to explain anomalies.
+    Must include testable predictions (required for ADI cycle).
+    """
     action_type: Literal["generate_hypothesis"] = "generate_hypothesis"
-    anomaly: str = Field(description="What triggered hypothesis generation")
-    hypothesis: str = Field(description="Proposed explanation/solution")
+    anomaly: str = Field(description="What anomaly/question triggered hypothesis generation")
+    hypothesis_statement: str = Field(description="Proposed explanation/solution")
+    plausibility_score: Annotated[float, Field(ge=0, le=1)] = Field(
+        description="How plausible is this hypothesis [0-1]"
+    )
     plausibility_rationale: str = Field(description="Why this hypothesis is plausible")
+    testable_predictions: Annotated[list[str], Field(min_length=1, max_length=5)] = Field(
+        description="Predictions that can be tested to validate/refute hypothesis"
+    )
+    competing_hypotheses: list[str] = Field(
+        default_factory=list,
+        description="Alternative hypotheses considered"
+    )
 
 
 class DeduceConsequences(BaseModel):

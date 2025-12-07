@@ -13,6 +13,7 @@ from .config import (
     get_supported_models,
     parse_model_string,
     validate_model,
+    validate_fpf_config,
     Config,
     ModelConfig,
 )
@@ -34,8 +35,17 @@ class AppState:
     async def initialize(self):
         """Initialize storage and agent."""
         await self.storage.initialize()
+
+        # Validate FPF configuration and print warnings
+        warnings = validate_fpf_config(self.config)
+        for warning in warnings:
+            print(f"[FPF Config] Warning: {warning}")
+
         if self.config.model.api_key:
-            self.agent = FPFReasoningAgent(self.config.model)
+            self.agent = FPFReasoningAgent(
+                self.config.model,
+                fpf_spec_path=self.config.fpf_spec_path,
+            )
 
     def update_model(self, model_str: str, api_key: str) -> str:
         """Update model configuration."""
@@ -53,7 +63,10 @@ class AppState:
             temperature=self.config.model.temperature,
             max_tokens=self.config.model.max_tokens,
         )
-        self.agent = FPFReasoningAgent(self.config.model)
+        self.agent = FPFReasoningAgent(
+            self.config.model,
+            fpf_spec_path=self.config.fpf_spec_path,
+        )
         return f"Model updated: {model_str}"
 
 

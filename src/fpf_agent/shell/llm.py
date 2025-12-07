@@ -25,13 +25,12 @@ from ..core.fpf_index import (
     parse_fpf_spec,
     get_section_content,
     search_sections,
+    search_by_keywords,
     build_section_index_summary,
+    get_related_sections,
+    normalize_pattern_id,
     FPFSection,
 )
-
-
-# Default FPF spec path (relative to project root)
-DEFAULT_FPF_SPEC_PATH = Path(__file__).parent.parent.parent.parent.parent / "First Principles Framework — Core Conceptual Specification (holonic).md"
 
 
 def create_model(config: ModelConfig):
@@ -80,7 +79,8 @@ class FPFReasoningAgent:
         self.model = create_model(config)
 
         # Load FPF specification index
-        self.fpf_spec_path = fpf_spec_path or DEFAULT_FPF_SPEC_PATH
+        # fpf_spec_path should be provided from Config.fpf_spec_path
+        self.fpf_spec_path = fpf_spec_path
         self.fpf_sections: dict[str, FPFSection] = {}
         self._load_fpf_index()
 
@@ -103,9 +103,14 @@ class FPFReasoningAgent:
 
     def _load_fpf_index(self) -> None:
         """Load and index the FPF specification."""
+        if self.fpf_spec_path is None:
+            print("[FPF] Warning: No FPF spec path configured. Section lookup disabled.")
+            print("[FPF] Set FPF_SPEC_PATH env var or place spec in project directory.")
+            return
+
         if self.fpf_spec_path.exists():
             self.fpf_sections = parse_fpf_spec(self.fpf_spec_path)
-            print(f"[FPF] Loaded {len(self.fpf_sections)} sections from spec")
+            print(f"[FPF] Loaded {len(self.fpf_sections)} sections from {self.fpf_spec_path.name}")
         else:
             print(f"[FPF] Warning: Spec not found at {self.fpf_spec_path}")
 
@@ -137,18 +142,22 @@ Your response should:
 
 Remember: Trust is computed, not intuited. State your confidence level with rationale."""
 
-    def read_fpf_section(self, pattern_id: str) -> str:
+    def read_fpf_section(self, pattern_id: str, include_related: bool = False) -> str:
         """
         Read a section from the FPF specification.
 
         Args:
             pattern_id: Either exact pattern ID (e.g., "A.1", "B.3.2") or keyword
+            include_related: If True, also list related sections
 
         Returns:
             Section content or search results if multiple matches
         """
+        if self.fpf_spec_path is None:
+            return "FPF specification not configured. Set FPF_SPEC_PATH environment variable."
+
         if not self.fpf_sections:
-            return "FPF specification not loaded."
+            return "FPF specification not loaded or contains no parseable sections."
 
         # Try exact match first
         content = get_section_content(
@@ -159,17 +168,34 @@ Remember: Trust is computed, not intuited. State your confidence level with rati
         )
 
         if content:
-            return content
+            result = content
 
-        # Try keyword search
-        matches = search_sections(self.fpf_sections, pattern_id)
+            # Optionally append related sections
+            if include_related:
+                related = get_related_sections(self.fpf_sections, pattern_id)
+                if related:
+                    result += "\n\n## Related Sections\n"
+                    for s in related[:5]:
+                        result += f"- **{s.pattern_id}**: {s.title}\n"
+
+            return result
+
+        # Try keyword search with multiple words
+        query_words = pattern_id.split()
+        if len(query_words) > 1:
+            matches = search_by_keywords(self.fpf_sections, query_words)
+        else:
+            matches = search_sections(self.fpf_sections, pattern_id)
+
         if matches:
-            result_parts = [f"No exact match for '{pattern_id}'. Related sections:"]
-            for section in matches[:5]:
-                result_parts.append(f"- {section.pattern_id}: {section.title}")
+            result_parts = [f"No exact match for '{pattern_id}'. Relevant sections:"]
+            for section in matches[:7]:
+                status = f" [{section.status}]" if section.status else ""
+                result_parts.append(f"- **{section.pattern_id}**: {section.title}{status}")
+            result_parts.append("\nUse exact pattern ID (e.g., 'B.3') to read full content.")
             return "\n".join(result_parts)
 
-        return f"No FPF section found for '{pattern_id}'"
+        return f"No FPF section found for '{pattern_id}'. Try broader keywords."
 
     async def reason_step(
         self,
