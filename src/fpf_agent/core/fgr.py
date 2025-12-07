@@ -293,6 +293,10 @@ class EvidenceGraph:
             if node.valid_until and at_time > node.valid_until
         ]
 
+    def has_stale_evidence(self, at_time: datetime | None = None) -> bool:
+        """Check if any evidence has passed its valid_until date."""
+        return len(self.get_stale_evidence(at_time)) > 0
+
 
 def compute_reliability(
     evidence_nodes: list[EvidenceNode],

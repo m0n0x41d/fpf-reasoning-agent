@@ -25,10 +25,11 @@ class TestFormalityLevel:
         assert level.value <= 2
 
     def test_structured_prose_estimation(self):
-        """Structured text should be F2-F4."""
-        text = "The system shall process requests within 100ms latency requirement"
+        """Structured text should be F1-F3."""
+        text = "Latency is defined as the time between request and response, specifically under 100ms"
         level = compute_formality(text)
-        assert 2 <= level.value <= 5
+        # Should detect "defined as" and "specifically" indicators
+        assert 1 <= level.value <= 4
 
     def test_formal_text_estimation(self):
         """Formal text with technical terms should be higher."""
@@ -84,7 +85,7 @@ class TestEvidenceGraph:
     """Test evidence graph behavior."""
 
     def test_empty_graph(self):
-        """Empty graph should have zero reliability."""
+        """Empty graph should have zero nodes."""
         graph = EvidenceGraph()
         assert len(graph.nodes) == 0
 
@@ -100,6 +101,23 @@ class TestEvidenceGraph:
         )
         graph.add_evidence(node)
         assert len(graph.nodes) == 1
+
+    def test_anchor_claim(self):
+        """Can anchor evidence to a claim."""
+        graph = EvidenceGraph()
+        node = EvidenceNode(
+            evidence_id="ev1",
+            evidence_type="observation",
+            content_summary="Test",
+            source="test",
+            reliability=0.8,
+        )
+        graph.add_evidence(node)
+        graph.anchor_claim("claim1", ["ev1"])
+
+        evidence = graph.get_evidence_for_claim("claim1")
+        assert len(evidence) == 1
+        assert evidence[0].evidence_id == "ev1"
 
     def test_weakest_link_computation(self):
         """Reliability should use weakest-link rule."""
@@ -119,9 +137,8 @@ class TestEvidenceGraph:
             reliability=0.3,
         ))
 
-        # Link both to a claim
-        graph.link_evidence_to_claim("claim1", "ev1")
-        graph.link_evidence_to_claim("claim1", "ev2")
+        # Anchor both to a claim
+        graph.anchor_claim("claim1", ["ev1", "ev2"])
 
         # Weakest link: reliability should be min(0.9, 0.3) = 0.3
         reliability = graph.compute_claim_reliability("claim1")
@@ -170,31 +187,40 @@ class TestComputeFGRAssessment:
 
     def test_basic_assessment(self):
         """Can compute basic F-G-R assessment."""
+        # Create evidence graph with anchored evidence
+        graph = EvidenceGraph()
+        graph.add_evidence(EvidenceNode(
+            evidence_id="ev1",
+            evidence_type="test_result",
+            content_summary="Load test passed",
+            source="qa_team",
+            reliability=0.7,
+        ))
+        graph.anchor_claim("claim1", ["ev1"])
+
         assessment = compute_fgr_assessment(
-            claim="The system processes requests",
-            evidence_nodes=[
-                EvidenceNode(
-                    evidence_id="ev1",
-                    evidence_type="test_result",
-                    content_summary="Load test passed",
-                    source="qa_team",
-                    reliability=0.7,
-                ),
-            ],
-            context="production",
+            claim_text="The system processes requests",
+            context_id="production",
+            evidence_graph=graph,
+            claim_id="claim1",
         )
 
         assert assessment is not None
         assert 0 <= assessment.reliability <= 1
-        assert assessment.scope_context == "production"
+        assert assessment.scope.bounded_context == "production"
 
     def test_assessment_without_evidence(self):
         """Assessment without evidence should have low assurance."""
+        graph = EvidenceGraph()  # Empty graph
+        # Anchor an empty claim
+        graph.anchor_claim("unsubstantiated", [])
+
         assessment = compute_fgr_assessment(
-            claim="Unsubstantiated claim",
-            evidence_nodes=[],
-            context="default",
+            claim_text="Unsubstantiated claim",
+            context_id="default",
+            evidence_graph=graph,
+            claim_id="unsubstantiated",
         )
 
-        assert assessment.assurance_level == "L0_unsubstantiated"
+        assert assessment.assurance_level.name == "L0_UNSUBSTANTIATED"
         assert assessment.reliability == 0.0

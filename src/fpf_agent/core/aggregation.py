@@ -39,9 +39,10 @@ class AggregationInvariant(Enum):
 
 
 # Invariant compatibility matrix: which invariants can coexist
-INVARIANT_COMPATIBILITY = {
+# Keys are frozensets to avoid ordering issues
+INVARIANT_COMPATIBILITY: dict[frozenset, bool] = {
     # WLNK and MONO are incompatible for most aggregations
-    (AggregationInvariant.WLNK, AggregationInvariant.MONO): False,
+    frozenset({AggregationInvariant.WLNK, AggregationInvariant.MONO}): False,
     # All other pairs are compatible
 }
 
@@ -50,7 +51,7 @@ def check_invariant_compatibility(invariants: list[AggregationInvariant]) -> tup
     """Check if a set of invariants is internally consistent."""
     for i, inv1 in enumerate(invariants):
         for inv2 in invariants[i + 1:]:
-            pair = (inv1, inv2) if inv1.value < inv2.value else (inv2, inv1)
+            pair = frozenset({inv1, inv2})
             if pair in INVARIANT_COMPATIBILITY and not INVARIANT_COMPATIBILITY[pair]:
                 return False, f"Invariants {inv1.value} and {inv2.value} are incompatible"
     return True, "OK"

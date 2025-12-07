@@ -86,6 +86,7 @@ class TestFPFReasoningPipeline:
                 "hypothesis_statement": "Memory leak in connection pool",
                 "testable_predictions": ["Memory grows over time"],
                 "plausibility_score": 0.8,
+                "plausibility_rationale": "Connection pool shows increasing handle count",
             },
         }
 
@@ -99,7 +100,7 @@ class TestFPFReasoningPipeline:
         """Context transitions are tracked."""
         pipeline = FPFReasoningPipeline()
 
-        # First step in context A
+        # First step in context A (also records default -> context_a transition)
         step1 = {
             "object_of_talk": {"category": "System", "description": "Sys"},
             "context": {"context_id": "context_a"},
@@ -119,10 +120,12 @@ class TestFPFReasoningPipeline:
         }
         result = pipeline.process_step(step2)
 
-        # Should have recorded transition
-        assert len(pipeline.state.context_transitions) == 1
-        assert pipeline.state.context_transitions[0]["from"] == "context_a"
-        assert pipeline.state.context_transitions[0]["to"] == "context_b"
+        # Should have recorded both transitions: default -> context_a and context_a -> context_b
+        assert len(pipeline.state.context_transitions) == 2
+        assert pipeline.state.context_transitions[0]["from"] == "default"
+        assert pipeline.state.context_transitions[0]["to"] == "context_a"
+        assert pipeline.state.context_transitions[1]["from"] == "context_a"
+        assert pipeline.state.context_transitions[1]["to"] == "context_b"
 
     def test_strict_mode_raises_on_critical(self):
         """Strict mode raises on critical violations."""

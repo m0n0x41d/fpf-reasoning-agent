@@ -44,6 +44,7 @@ from .adi_cycle import (
     Hypothesis,
     DeductionResult,
     InductionResult,
+    GateDecision,
 )
 from .validator import (
     FPFReasoningValidator,
@@ -54,6 +55,7 @@ from .validator import (
 from .contexts import (
     BoundedContext as CtxBoundedContext,
     ContextRegistry,
+    BridgeRegistry,
     BridgeMapping,
     ContextTransitionTracker,
     TermDefinition,
@@ -180,7 +182,8 @@ class FPFReasoningPipeline:
         self.validator = FPFReasoningValidator()
         self.evidence_graph = EvidenceGraph()
         self.context_registry = ContextRegistry()
-        self.context_tracker = ContextTransitionTracker(self.context_registry)
+        self.bridge_registry = BridgeRegistry(self.context_registry)
+        self.context_tracker = ContextTransitionTracker(self.bridge_registry)
         self.aggregation_guard = AggregationGuard()
 
         # Creativity (for abduction phase)
@@ -232,14 +235,14 @@ class FPFReasoningPipeline:
         if action_type == "generate_hypothesis":
             # Abduction phase
             result = self._handle_abduction(action)
-            gate_passed = result.passed
-            gate_message = result.message
+            gate_passed = result.decision == GateDecision.PASS
+            gate_message = result.reason
 
         elif action_type == "deduce_consequences":
             # Deduction phase
             result = self._handle_deduction(action)
-            gate_passed = result.passed
-            gate_message = result.message
+            gate_passed = result.decision == GateDecision.PASS
+            gate_message = result.reason
 
         # 3. Compute F-G-R if trust_assessment provided
         computed_fgr = None
@@ -321,10 +324,9 @@ class FPFReasoningPipeline:
             hypothesis_id=f"hyp_{self.state.step_count}",
             statement=action.get("hypothesis_statement", ""),
             anomaly_addressed=action.get("anomaly", ""),
-            testable_predictions=action.get("testable_predictions", []),
             plausibility_score=action.get("plausibility_score", 0.5),
             plausibility_rationale=action.get("plausibility_rationale", ""),
-            generation_method="llm_abduction",
+            testable_predictions=action.get("testable_predictions", []),
         )
 
         result = self.adi_controller.submit_hypothesis(hypothesis)
@@ -355,7 +357,7 @@ class FPFReasoningPipeline:
         deduction = DeductionResult(
             hypothesis_id=action.get("hypothesis", ""),
             derived_consequences=action.get("consequences", []),
-            testable_predictions=action.get("testable_predictions", []),
+            predictions_to_test=action.get("predictions_to_test", action.get("testable_predictions", [])),
         )
 
         return self.adi_controller.submit_deduction(deduction)
@@ -433,7 +435,7 @@ class FPFReasoningPipeline:
         })
 
         # Check for bridge
-        bridge = self.context_registry.get_bridge(from_context, to_context)
+        bridge = self.bridge_registry.find_bridge(from_context, to_context)
         if bridge:
             return bridge.aggregate_cl
 

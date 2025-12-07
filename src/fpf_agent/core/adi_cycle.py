@@ -84,9 +84,14 @@ class DeductionResult:
     """Results from the deduction phase."""
     hypothesis_id: str
     derived_consequences: list[str]
-    predictions_to_test: list[str]
-    logical_consistency: bool
-    consistency_rationale: str
+    predictions_to_test: list[str] = field(default_factory=list)
+    logical_consistency: bool = True
+    consistency_rationale: str = ""
+
+    def __post_init__(self):
+        """Default predictions_to_test from derived_consequences if empty."""
+        if not self.predictions_to_test and self.derived_consequences:
+            self.predictions_to_test = list(self.derived_consequences)
 
     def is_valid_for_induction(self) -> tuple[bool, str]:
         """Check if deduction results meet gate requirements for induction."""
@@ -101,12 +106,24 @@ class DeductionResult:
 class InductionResult:
     """Results from the induction phase."""
     hypothesis_id: str
-    predictions_tested: list[str]
-    predictions_confirmed: list[str]
-    predictions_refuted: list[str]
-    overall_verdict: str  # "confirmed", "refuted", "partial", "inconclusive"
-    confidence: float
-    evidence_summary: str
+    predictions_tested: list[str] = field(default_factory=list)
+    predictions_confirmed: list[str] = field(default_factory=list)
+    predictions_refuted: list[str] = field(default_factory=list)
+    overall_verdict: str = ""  # "confirmed", "refuted", "partial", "inconclusive"
+    confidence: float = 0.0
+    evidence_summary: str = ""
+
+    def __post_init__(self):
+        """Auto-compute verdict if not provided."""
+        if not self.overall_verdict:
+            if self.predictions_refuted and not self.predictions_confirmed:
+                self.overall_verdict = "refuted"
+            elif self.predictions_confirmed and not self.predictions_refuted:
+                self.overall_verdict = "confirmed"
+            elif self.predictions_confirmed and self.predictions_refuted:
+                self.overall_verdict = "partial"
+            else:
+                self.overall_verdict = "inconclusive"
 
     @property
     def should_loop_back(self) -> bool:
