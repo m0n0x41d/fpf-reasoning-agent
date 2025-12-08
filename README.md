@@ -157,3 +157,7 @@ The agent has access to the full 167-section FPF specification:
 
 - **Static base prompt** (~8.7K chars) with core FPF fundamentals
 - **On-demand lookup** via `read_fpf_section` action for detailed patterns
+
+## License
+
+All rights to FPF belong to Anatoly Levenchuk. The SGR concept was developed by Rinat Abdullin. This project inevitably inherits any licenses associated with FPF and SGR. This project does not impose any additional proprietary licenses and is merely a demonstration and example of the implementation of both concepts.
