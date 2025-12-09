@@ -11,6 +11,8 @@ dependencies = [
     "aiosqlite>=0.20",
     "pypdf>=5.1",
     "python-dotenv>=1.0",
+    "python-arango>=8.0",
+    "networkx>=3.0",
 ]
 
 [project.scripts]
