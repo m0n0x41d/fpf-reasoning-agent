@@ -12,7 +12,16 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from .types import AssuranceLevel, HolonId, LifecycleState, TemporalStance
+from .types import (
+    AssuranceLevel,
+    AssuranceRecord,
+    HolonId,
+    LifecycleState,
+    TemporalStance,
+    TypingAssuranceLevel,
+    ValidationAssuranceLevel,
+    VerificationAssuranceLevel,
+)
 
 
 class StrictDistinctionSlots(BaseModel):
@@ -76,7 +85,7 @@ class UEpisteme(UHolon):
 
     FPF Compliance:
     - B.5.1: lifecycle_state tracks Explore→Shape→Evidence→Operate
-    - B.3.3: assurance_level tracks L0→L1→L2
+    - B.3.3: assurance_record tracks TA/VA/LA lanes → computed L0/L1/L2
     - A.10: evidence_ids link to supporting evidence
 
     New epistemes start at L0 (untested) in exploration state.
@@ -90,9 +99,20 @@ class UEpisteme(UHolon):
     viewpoint: Optional[str] = None
 
     lifecycle_state: LifecycleState = LifecycleState.EXPLORATION
+
+    # FPF B.3.3: Three-lane assurance tracking
+    assurance_record: AssuranceRecord = Field(default_factory=AssuranceRecord)
+
+    # Legacy field for backward compatibility — computed from assurance_record
     assurance_level: AssuranceLevel = AssuranceLevel.L0
 
     evidence_ids: list[UUID] = Field(default_factory=list)
+
+    def model_post_init(self, __context: Any) -> None:
+        """Sync assurance_level with assurance_record after init."""
+        object.__setattr__(
+            self, "assurance_level", self.assurance_record.compute_level()
+        )
 
     def with_claim(self, key: str, value: Any) -> UEpisteme:
         """
@@ -125,11 +145,61 @@ class UEpisteme(UHolon):
             }
         )
 
+    def with_typing_assurance(
+        self,
+        level: TypingAssuranceLevel,
+        evidence_id: Optional[UUID] = None,
+        rationale: str = "",
+    ) -> UEpisteme:
+        """Return new episteme with updated typing assurance."""
+        new_record = self.assurance_record.with_typing(level, evidence_id, rationale)
+        return self.model_copy(
+            update={
+                "assurance_record": new_record,
+                "assurance_level": new_record.compute_level(),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+
+    def with_verification_assurance(
+        self,
+        level: VerificationAssuranceLevel,
+        evidence_id: Optional[UUID] = None,
+        rationale: str = "",
+    ) -> UEpisteme:
+        """Return new episteme with updated verification assurance."""
+        new_record = self.assurance_record.with_verification(level, evidence_id, rationale)
+        return self.model_copy(
+            update={
+                "assurance_record": new_record,
+                "assurance_level": new_record.compute_level(),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+
+    def with_validation_assurance(
+        self,
+        level: ValidationAssuranceLevel,
+        evidence_id: Optional[UUID] = None,
+        rationale: str = "",
+    ) -> UEpisteme:
+        """Return new episteme with updated validation assurance."""
+        new_record = self.assurance_record.with_validation(level, evidence_id, rationale)
+        return self.model_copy(
+            update={
+                "assurance_record": new_record,
+                "assurance_level": new_record.compute_level(),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+
     def elevate_assurance(self, new_level: AssuranceLevel) -> UEpisteme:
         """
         Return new episteme with elevated assurance level.
 
-        NOTE: This does not check requirements — use ADICycle for proper elevation.
+        DEPRECATED: Use with_typing_assurance, with_verification_assurance,
+        or with_validation_assurance instead. This method exists for
+        backward compatibility only.
         """
         if new_level.value <= self.assurance_level.value:
             return self
