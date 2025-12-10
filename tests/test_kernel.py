@@ -14,11 +14,13 @@ from uuid import uuid4
 from fpf_agent.kernel import (
     AssuranceLevel,
     AssuranceRecord,
+    CarrierType,
     ContextBridge,
     Edition,
     HolonId,
     LifecycleState,
     StrictDistinctionSlots,
+    SymbolCarrierRecord,
     TemporalStance,
     TypingAssuranceLevel,
     UBoundedContext,
@@ -26,6 +28,7 @@ from fpf_agent.kernel import (
     ValidationAssuranceLevel,
     VerificationAssuranceLevel,
 )
+from fpf_agent.trust.fgr import ClaimScope, FGRTuple, FormalityLevel
 
 
 class TestEdition:
@@ -513,3 +516,220 @@ class TestContextBridge:
             congruence_level=3
         )
         assert bridge.reliability_penalty() == 0.2
+
+
+class TestCarrierType:
+    """Test CarrierType enumeration and defaults."""
+
+    def test_carrier_type_values(self):
+        """CarrierType has expected values."""
+        assert CarrierType.UNKNOWN == 0
+        assert CarrierType.PEER_REVIEWED_JOURNAL == 1
+        assert CarrierType.PREPRINT == 2
+
+    def test_default_formality(self):
+        """Carrier types have sensible default formality."""
+        assert CarrierType.PEER_REVIEWED_JOURNAL.default_formality == 3
+        assert CarrierType.BLOG_POST.default_formality == 1
+        assert CarrierType.DATASET.default_formality == 5
+        assert CarrierType.UNKNOWN.default_formality == 0
+
+    def test_default_reliability(self):
+        """Carrier types have sensible default reliability."""
+        assert CarrierType.PEER_REVIEWED_JOURNAL.default_reliability == 0.7
+        assert CarrierType.PREPRINT.default_reliability == 0.4
+        assert CarrierType.BLOG_POST.default_reliability == 0.2
+        assert CarrierType.UNKNOWN.default_reliability == 0.1
+
+
+class TestSymbolCarrierRecord:
+    """Test SymbolCarrierRecord provenance tracking."""
+
+    def test_create_scr(self):
+        """Can create SCR with required fields."""
+        scr = SymbolCarrierRecord(
+            uri="file:///papers/test.pdf",
+            carrier_type=CarrierType.PEER_REVIEWED_JOURNAL,
+            content_hash="abc123def456",
+        )
+        assert scr.uri == "file:///papers/test.pdf"
+        assert scr.carrier_type == CarrierType.PEER_REVIEWED_JOURNAL
+        assert scr.content_hash == "abc123def456"
+
+    def test_scr_is_frozen(self):
+        """SCR is immutable."""
+        scr = SymbolCarrierRecord(
+            uri="file:///test.pdf",
+            carrier_type=CarrierType.PREPRINT,
+            content_hash="hash",
+        )
+        with pytest.raises(Exception):
+            scr.uri = "file:///other.pdf"
+
+    def test_scr_initial_formality_from_carrier(self):
+        """initial_formality delegates to carrier type."""
+        scr = SymbolCarrierRecord(
+            uri="https://arxiv.org/abs/2401.12345",
+            carrier_type=CarrierType.PREPRINT,
+            content_hash="hash",
+        )
+        assert scr.initial_formality() == 2  # F2
+
+    def test_scr_initial_reliability_from_carrier(self):
+        """initial_reliability delegates to carrier type."""
+        scr = SymbolCarrierRecord(
+            uri="https://example.com/blog/post",
+            carrier_type=CarrierType.BLOG_POST,
+            content_hash="hash",
+        )
+        assert scr.initial_reliability() == 0.2
+
+    def test_scr_with_optional_fields(self):
+        """Can include title and authors."""
+        scr = SymbolCarrierRecord(
+            uri="doi:10.1000/xyz123",
+            carrier_type=CarrierType.PEER_REVIEWED_JOURNAL,
+            content_hash="hash",
+            title="A Study of Things",
+            authors=["Alice", "Bob"],
+        )
+        assert scr.title == "A Study of Things"
+        assert scr.authors == ["Alice", "Bob"]
+
+
+class TestUEpistemeFGR:
+    """Test F-G-R tuple integration with UEpisteme."""
+
+    def test_default_fgr(self):
+        """New epistemes have default F-G-R (F0, universal scope, R=0)."""
+        hid = HolonId(context_id="ctx")
+        episteme = UEpisteme(holon_id=hid, described_entity="Test")
+
+        assert episteme.fgr.formality == FormalityLevel.F0_INFORMAL
+        assert episteme.fgr.reliability == 0.0
+        assert not episteme.fgr.claim_scope.contexts  # universal/empty
+
+    def test_with_fgr_returns_new_instance(self):
+        """with_fgr returns new episteme, doesn't mutate."""
+        hid = HolonId(context_id="ctx")
+        original = UEpisteme(holon_id=hid, described_entity="Test")
+
+        new_fgr = FGRTuple(
+            formality=FormalityLevel.F3_STRUCTURED,
+            claim_scope=ClaimScope(contexts={"ml", "research"}),
+            reliability=0.7,
+        )
+        updated = original.with_fgr(new_fgr)
+
+        assert original.fgr.formality == FormalityLevel.F0_INFORMAL
+        assert updated.fgr.formality == FormalityLevel.F3_STRUCTURED
+        assert updated.fgr.reliability == 0.7
+        assert "ml" in updated.fgr.claim_scope.contexts
+
+    def test_with_reliability_convenience(self):
+        """with_reliability updates R only, keeps F and G."""
+        hid = HolonId(context_id="ctx")
+        fgr = FGRTuple(
+            formality=FormalityLevel.F4_TYPED,
+            claim_scope=ClaimScope(contexts={"domain"}),
+            reliability=0.5,
+        )
+        original = UEpisteme(holon_id=hid, described_entity="Test", fgr=fgr)
+
+        updated = original.with_reliability(0.8)
+
+        assert updated.fgr.formality == FormalityLevel.F4_TYPED  # unchanged
+        assert updated.fgr.claim_scope.contexts == {"domain"}  # unchanged
+        assert updated.fgr.reliability == 0.8  # updated
+
+    def test_with_claim_scope_convenience(self):
+        """with_claim_scope updates G only, keeps F and R."""
+        hid = HolonId(context_id="ctx")
+        fgr = FGRTuple(
+            formality=FormalityLevel.F5_CONSTRAINED,
+            claim_scope=ClaimScope(contexts={"old"}),
+            reliability=0.6,
+        )
+        original = UEpisteme(holon_id=hid, described_entity="Test", fgr=fgr)
+
+        new_scope = ClaimScope(contexts={"new", "scope"})
+        updated = original.with_claim_scope(new_scope)
+
+        assert updated.fgr.formality == FormalityLevel.F5_CONSTRAINED  # unchanged
+        assert updated.fgr.claim_scope.contexts == {"new", "scope"}  # updated
+        assert updated.fgr.reliability == 0.6  # unchanged
+
+
+class TestUEpistemeSCR:
+    """Test Symbol Carrier Register integration with UEpisteme."""
+
+    def test_default_scr_empty(self):
+        """New epistemes have no SCR refs."""
+        hid = HolonId(context_id="ctx")
+        episteme = UEpisteme(holon_id=hid, described_entity="Test")
+
+        assert episteme.scr_refs == []
+
+    def test_with_scr_returns_new_instance(self):
+        """with_scr returns new episteme, doesn't mutate."""
+        hid = HolonId(context_id="ctx")
+        original = UEpisteme(holon_id=hid, described_entity="Test")
+
+        scr = SymbolCarrierRecord(
+            uri="file:///paper.pdf",
+            carrier_type=CarrierType.PEER_REVIEWED_JOURNAL,
+            content_hash="hash123",
+        )
+        updated = original.with_scr(scr)
+
+        assert len(original.scr_refs) == 0
+        assert len(updated.scr_refs) == 1
+        assert updated.scr_refs[0].uri == "file:///paper.pdf"
+
+    def test_with_scr_appends(self):
+        """with_scr appends to existing refs."""
+        hid = HolonId(context_id="ctx")
+        scr1 = SymbolCarrierRecord(
+            uri="file:///paper1.pdf",
+            carrier_type=CarrierType.PREPRINT,
+            content_hash="hash1",
+        )
+        original = UEpisteme(holon_id=hid, described_entity="Test", scr_refs=[scr1])
+
+        scr2 = SymbolCarrierRecord(
+            uri="file:///paper2.pdf",
+            carrier_type=CarrierType.TECHNICAL_REPORT,
+            content_hash="hash2",
+        )
+        updated = original.with_scr(scr2)
+
+        assert len(updated.scr_refs) == 2
+        assert updated.scr_refs[0].uri == "file:///paper1.pdf"
+        assert updated.scr_refs[1].uri == "file:///paper2.pdf"
+
+    def test_episteme_with_fgr_and_scr(self):
+        """Can create episteme with both F-G-R and SCR initialized."""
+        hid = HolonId(context_id="research")
+        scr = SymbolCarrierRecord(
+            uri="https://arxiv.org/abs/2401.12345",
+            carrier_type=CarrierType.PREPRINT,
+            content_hash="arxivhash",
+            title="Neural Networks",
+            authors=["Smith", "Jones"],
+        )
+        fgr = FGRTuple(
+            formality=FormalityLevel(scr.initial_formality()),
+            claim_scope=ClaimScope(contexts={"ml", "neural-nets"}),
+            reliability=scr.initial_reliability(),
+        )
+        episteme = UEpisteme(
+            holon_id=hid,
+            described_entity="Neural network convergence claim",
+            fgr=fgr,
+            scr_refs=[scr],
+        )
+
+        assert episteme.fgr.formality == FormalityLevel.F2_CONTROLLED
+        assert episteme.fgr.reliability == 0.4
+        assert len(episteme.scr_refs) == 1
+        assert episteme.scr_refs[0].title == "Neural Networks"

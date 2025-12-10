@@ -15,13 +15,16 @@ from pydantic import BaseModel, Field
 from .types import (
     AssuranceLevel,
     AssuranceRecord,
+    CarrierType,
     HolonId,
     LifecycleState,
+    SymbolCarrierRecord,
     TemporalStance,
     TypingAssuranceLevel,
     ValidationAssuranceLevel,
     VerificationAssuranceLevel,
 )
+from ..trust.fgr import ClaimScope, FGRTuple, FormalityLevel
 
 
 class StrictDistinctionSlots(BaseModel):
@@ -73,6 +76,15 @@ class UHolon(BaseModel):
     temporal_stance: TemporalStance = TemporalStance.DESIGN_TIME
 
 
+def _default_fgr() -> FGRTuple:
+    """Default F-G-R tuple for new epistemes."""
+    return FGRTuple(
+        formality=FormalityLevel.F0_INFORMAL,
+        claim_scope=ClaimScope(),
+        reliability=0.0,
+    )
+
+
 class UEpisteme(UHolon):
     """
     Episteme — unit of knowledge (FPF C.2.1).
@@ -84,8 +96,10 @@ class UEpisteme(UHolon):
     - viewpoint: Perspective from which claims are made
 
     FPF Compliance:
+    - B.3: fgr tuple tracks Formality, claim Scope (G), and Reliability
     - B.5.1: lifecycle_state tracks Explore→Shape→Evidence→Operate
     - B.3.3: assurance_record tracks TA/VA/LA lanes → computed L0/L1/L2
+    - A.10: scr_refs tracks symbol carriers (provenance)
     - A.10: evidence_ids link to supporting evidence
 
     New epistemes start at L0 (untested) in exploration state.
@@ -99,6 +113,12 @@ class UEpisteme(UHolon):
     viewpoint: Optional[str] = None
 
     lifecycle_state: LifecycleState = LifecycleState.EXPLORATION
+
+    # FPF B.3: Trust tuple (Formality, claim Scope, Reliability)
+    fgr: FGRTuple = Field(default_factory=_default_fgr)
+
+    # FPF A.10: Symbol Carrier Register — provenance tracking
+    scr_refs: list[SymbolCarrierRecord] = Field(default_factory=list)
 
     # FPF B.3.3: Three-lane assurance tracking
     assurance_record: AssuranceRecord = Field(default_factory=AssuranceRecord)
@@ -131,6 +151,55 @@ class UEpisteme(UHolon):
         """
         new_evidence = [*self.evidence_ids, evidence_id]
         return self.model_copy(update={"evidence_ids": new_evidence})
+
+    def with_fgr(self, fgr: FGRTuple) -> UEpisteme:
+        """
+        Return new episteme with updated F-G-R tuple.
+
+        Use this for trust updates. Does not mutate.
+        """
+        return self.model_copy(
+            update={
+                "fgr": fgr,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+
+    def with_reliability(self, reliability: float) -> UEpisteme:
+        """
+        Return new episteme with updated reliability only.
+
+        Convenience method — keeps F and G unchanged.
+        """
+        new_fgr = self.fgr.with_reliability(reliability)
+        return self.with_fgr(new_fgr)
+
+    def with_claim_scope(self, scope: ClaimScope) -> UEpisteme:
+        """
+        Return new episteme with updated claim scope (G).
+
+        Convenience method — keeps F and R unchanged.
+        """
+        new_fgr = FGRTuple(
+            formality=self.fgr.formality,
+            claim_scope=scope,
+            reliability=self.fgr.reliability,
+        )
+        return self.with_fgr(new_fgr)
+
+    def with_scr(self, scr: SymbolCarrierRecord) -> UEpisteme:
+        """
+        Return new episteme with additional symbol carrier reference.
+
+        Tracks provenance per FPF A.10. Does not mutate.
+        """
+        new_scr_refs = [*self.scr_refs, scr]
+        return self.model_copy(
+            update={
+                "scr_refs": new_scr_refs,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
 
     def transition_lifecycle(self, new_state: LifecycleState) -> UEpisteme:
         """

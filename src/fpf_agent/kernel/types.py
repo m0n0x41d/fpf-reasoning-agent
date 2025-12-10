@@ -5,6 +5,7 @@ FPF Compliance:
 - A.1: Identity via HolonId
 - A.4: Temporal Duality via TemporalStance
 - A.7/A.15: Immutable editions (supersedes chain)
+- A.10/B.1.3: Symbol Carrier Register (SCR) for provenance
 """
 from __future__ import annotations
 
@@ -14,6 +15,90 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
+
+
+class CarrierType(IntEnum):
+    """
+    FPF A.10: Types of symbol carriers.
+
+    Carriers are material substrates that hold epistemic content.
+    Different types have different reliability/formality defaults.
+    """
+    UNKNOWN = 0
+    PEER_REVIEWED_JOURNAL = 1
+    PREPRINT = 2
+    TECHNICAL_REPORT = 3
+    DOCUMENTATION = 4
+    BLOG_POST = 5
+    BOOK_CHAPTER = 6
+    CODE_REPOSITORY = 7
+    DATASET = 8
+    FIGURE = 9
+
+    @property
+    def default_formality(self) -> int:
+        """Default F level for this carrier type (F0-F9 scale)."""
+        return {
+            0: 0,  # UNKNOWN
+            1: 3,  # PEER_REVIEWED_JOURNAL - controlled narrative
+            2: 2,  # PREPRINT - structured but not vetted
+            3: 3,  # TECHNICAL_REPORT
+            4: 2,  # DOCUMENTATION
+            5: 1,  # BLOG_POST - scoped notes
+            6: 3,  # BOOK_CHAPTER
+            7: 4,  # CODE_REPOSITORY - typed/structured
+            8: 5,  # DATASET - constrained
+            9: 2,  # FIGURE
+        }[self.value]
+
+    @property
+    def default_reliability(self) -> float:
+        """Default R value for this carrier type (0.0-1.0 scale)."""
+        return {
+            0: 0.1,  # UNKNOWN
+            1: 0.7,  # PEER_REVIEWED_JOURNAL
+            2: 0.4,  # PREPRINT
+            3: 0.5,  # TECHNICAL_REPORT
+            4: 0.6,  # DOCUMENTATION
+            5: 0.2,  # BLOG_POST
+            6: 0.6,  # BOOK_CHAPTER
+            7: 0.5,  # CODE_REPOSITORY
+            8: 0.6,  # DATASET
+            9: 0.3,  # FIGURE
+        }[self.value]
+
+
+class SymbolCarrierRecord(BaseModel):
+    """
+    FPF A.10/B.1.3: Symbol Carrier Register entry.
+
+    Tracks provenance of epistemic content — where did this claim come from?
+    Every episteme must track its material carriers for auditability.
+
+    The URI scheme indicates source type:
+    - file:///path/to/doc.pdf
+    - https://arxiv.org/abs/2401.12345
+    - doi:10.1000/xyz123
+    - git://repo/commit/hash
+    """
+    uri: str
+    carrier_type: CarrierType
+    content_hash: str
+    retrieval_timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    title: Optional[str] = None
+    authors: list[str] = Field(default_factory=list)
+
+    model_config = {"frozen": True}
+
+    def initial_formality(self) -> int:
+        """Get default formality level based on carrier type."""
+        return self.carrier_type.default_formality
+
+    def initial_reliability(self) -> float:
+        """Get default reliability based on carrier type."""
+        return self.carrier_type.default_reliability
 
 
 class Edition(BaseModel):

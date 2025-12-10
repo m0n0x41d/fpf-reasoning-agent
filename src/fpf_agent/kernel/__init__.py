@@ -6,15 +6,18 @@ Provides:
 - TemporalStance: Design-time vs run-time
 - LifecycleState, AssuranceLevel: State tracking
 - TA/VA/LA assurance subtypes: Three-lane assurance tracking
+- CarrierType, SymbolCarrierRecord: Provenance tracking (SCR)
 - UHolon, UEpisteme: Base and knowledge holons
 - UBoundedContext, ContextBridge: Semantic boundaries
 """
 from .types import (
     AssuranceLevel,
     AssuranceRecord,
+    CarrierType,
     Edition,
     HolonId,
     LifecycleState,
+    SymbolCarrierRecord,
     TemporalStance,
     TypingAssuranceLevel,
     ValidationAssuranceLevel,
@@ -35,12 +38,14 @@ from .bounded_context import (
 __all__ = [
     "AssuranceLevel",
     "AssuranceRecord",
+    "CarrierType",
     "ContextBridge",
     "Edition",
     "HolonId",
     "HolonType",
     "LifecycleState",
     "StrictDistinctionSlots",
+    "SymbolCarrierRecord",
     "TemporalStance",
     "TypingAssuranceLevel",
     "UBoundedContext",
